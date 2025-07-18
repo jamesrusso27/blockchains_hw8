@@ -70,15 +70,15 @@ def send_signed_msg(proof, random_leaf):
     w3 = connect_to(chain)
     contract = w3.eth.contract(address=address, abi=abi)
     nonce = w3.eth.get_transaction_count(acct.address)
-    tx = contract.functions.submit(random_leaf, proof).build_transaction({
+    tx = contract.functions.submit(proof, random_leaf).build_transaction({
         'from': acct.address,
         'nonce': nonce,
         'gas': 500000,
-        'gasPrice': w3.toWei('10', 'gwei')
+        'gasPrice': Web3.to_wei('10', 'gwei')
     })
     signed_tx = w3.eth.account.sign_transaction(tx, acct.key)
     tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-    return w3.toHex(tx_hash)
+    return Web3.to_hex(tx_hash)
 
 # Helper functions that do not need to be modified
 def connect_to(chain):

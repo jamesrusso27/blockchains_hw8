@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
+from web3.exceptions import TransactionFailed
 
 def merkle_assignment():
     num_of_primes = 8192
     primes = generate_primes(num_of_primes)
     leaves = convert_leaves(primes)
     tree = build_merkle(leaves)
-    random_leaf_index = random.randint(1, num_of_primes - 1)
+    random_leaf_index = find_unclaimed_leaf(primes, leaves)
     proof = prove_merkle(tree, random_leaf_index)
     challenge = ''.join(random.choice(string.ascii_letters) for i in range(32))
     addr, sig = sign_challenge(challenge)
@@ -27,7 +28,6 @@ def generate_primes(num_primes):
             if n % i == 0:
                 return False
         return True
-    
     primes_list = []
     n = 2
     while len(primes_list) < num_primes:
@@ -61,6 +61,17 @@ def prove_merkle(merkle_tree, random_indx):
         index //= 2
     return merkle_proof
 
+def find_unclaimed_leaf(primes, leaves):
+    chain = 'bsc'
+    w3 = connect_to(chain)
+    address, abi = get_contract_info(chain)
+    contract = w3.eth.contract(address=address, abi=abi)
+    for i in range(len(primes)):
+        owner = contract.functions.getOwnerByPrime(primes[i]).call()
+        if owner == '0x0000000000000000000000000000000000000000':
+            return i
+    raise ValueError("No unclaimed leaves found")
+
 def sign_challenge(challenge):
     acct = get_account()
     addr = acct.address
@@ -76,15 +87,23 @@ def send_signed_msg(proof, random_leaf):
     w3 = connect_to(chain)
     contract = w3.eth.contract(address=address, abi=abi)
     nonce = w3.eth.get_transaction_count(acct.address)
+    gas_price = w3.eth.gas_price
     tx = contract.functions.submit(proof, random_leaf).build_transaction({
         'from': acct.address,
         'nonce': nonce,
-        'gas': 2000000,
-        'gasPrice': w3.eth.gas_price
+        'gas': 3000000,
+        'gasPrice': int(gas_price * 1.1),
+        'chainId': 97
     })
     signed_tx = w3.eth.account.sign_transaction(tx, acct.key)
-    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-    return tx_hash.hex()
+    try:
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        print(f"Transaction sent: {tx_hash.hex()}")
+        w3.eth.wait_for_transaction_receipt(tx_hash)
+        return tx_hash.hex()
+    except TransactionFailed as e:
+        print(f"Transaction failed: {e}")
+        return None
 
 def connect_to(chain):
     if chain not in ['avax','bsc']:
